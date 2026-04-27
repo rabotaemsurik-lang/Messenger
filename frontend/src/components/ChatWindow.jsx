@@ -1,56 +1,39 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axiosInstance from '../api/axiosInstance';
 
-const ChatWindow = ({ activeChat, currentUser, socket }) => {
+const ChatWindow = ({ activeChat, currentUser, socket, onAddMember, onLeaveChat }) => {
     const [messages, setMessages] = useState([]);
     const [text, setText] = useState('');
+    const [showProfile, setShowProfile] = useState(false);
     const messagesEndRef = useRef(null);
 
-    // Завантаження історії при зміні активного чату
+    const defaultAvatar = 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
+
     useEffect(() => {
+        if (!activeChat) return;
         const fetchHistory = async () => {
             try {
-                const res = await axiosInstance.get(`/messages/history?user1=${currentUser.id}&user2=${activeChat.id}`);
+                const url = activeChat.isGroup
+                    ? `/messages/history?groupId=${activeChat.id}`
+                    : `/messages/history?user1=${currentUser.id}&user2=${activeChat.id}`;
+                const res = await axiosInstance.get(url);
                 setMessages(res.data);
-            } catch (error) {
-                console.error("Помилка завантаження історії", error);
-            }
+            } catch { setMessages([]); }
         };
         fetchHistory();
-    }, [activeChat.id, currentUser.id]);
-    useEffect(() => {
-        socket.on('receive_message', (newMessage) => {
-            setMessages((prev) => {
-                // Перевіряємо, чи повідомлення вже існує за ID
-                const exists = prev.find(m => m.id === newMessage.id);
-                if (exists) return prev;
-                return [...prev, newMessage];
-            });
-        });
+    }, [activeChat.id]);
 
-        return () => socket.off('receive_message');
-    }, [socket]);
-
-    // Слухаємо нові повідомлення по сокету
     useEffect(() => {
-        const handleReceiveMessage = (msg) => {
-            // Перевіряємо, чи це повідомлення стосується відкритого зараз чату
-            if (
+        const handleMsg = (msg) => {
+            const isRel = activeChat.isGroup ? msg.group_id === activeChat.id :
                 (msg.sender_id === activeChat.id && msg.receiver_id === currentUser.id) ||
-                (msg.sender_id === currentUser.id && msg.receiver_id === activeChat.id)
-            ) {
-                setMessages((prev) => [...prev, msg]);
-            }
+                (msg.sender_id === currentUser.id && msg.receiver_id === activeChat.id);
+            if (isRel) setMessages(prev => prev.find(m => m.id === msg.id) ? prev : [...prev, msg]);
         };
+        socket.on('receive_message', handleMsg);
+        return () => socket.off('receive_message', handleMsg);
+    }, [activeChat.id, socket]);
 
-        socket.on('receive_message', handleReceiveMessage);
-
-        return () => {
-            socket.off('receive_message', handleReceiveMessage);
-        };
-    }, [activeChat.id, currentUser.id, socket]);
-
-    // Автоматична прокрутка вниз при новому повідомленні
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
@@ -58,69 +41,83 @@ const ChatWindow = ({ activeChat, currentUser, socket }) => {
     const handleSend = (e) => {
         e.preventDefault();
         if (!text.trim()) return;
-
-        socket.emit('send_message', {
-            receiverId: activeChat.id,
+        socket.emit(activeChat.isGroup ? 'send_group_message' : 'send_message', {
+            [activeChat.isGroup ? 'groupId' : 'receiverId']: activeChat.id,
             text: text.trim()
         });
-
         setText('');
     };
-    const [showProfile, setShowProfile] = useState(false);
-    return (
-        <>
 
-            <div className="chat-header" style={{ cursor: 'pointer' }} onClick={() => setShowProfile(true)}>
-                <img
-                    src={activeChat.avatar_url || 'https://cdn-icons-png.flaticon.com/512/149/149071.png'}
-                    alt="avatar"
-                    className="avatar-small"
-                    onError={(e) => { e.target.src = 'https://cdn-icons-png.flaticon.com/512/149/149071.png'; }}
-                />
-                <h2>{activeChat.username}</h2>
-                <span className="info-hint">Натисніть, щоб глянути профіль</span>
+    return (
+        <div className="chat-main-layout">
+            <div className="chat-header">
+                <div className="user-info" onClick={() => !activeChat.isGroup && setShowProfile(true)}
+                     style={{ cursor: activeChat.isGroup ? 'default' : 'pointer' }}>
+                    <img
+                        src={activeChat.avatar_url || defaultAvatar}
+                        alt=""
+                        className="avatar-small"
+                        onError={(e) => e.target.src = defaultAvatar}
+                    />
+                    <div>
+                        <h2>{activeChat.isGroup ? activeChat.name : activeChat.username}</h2>
+                        <span className="status-text">
+                            {activeChat.isGroup ? 'Груповий чат' : 'Натисніть для профілю'}
+                        </span>
+                    </div>
+                </div>
+                <div className="header-actions">
+                    {activeChat.isGroup && <button className="add-member-btn" onClick={() => onAddMember(activeChat.id)}>➕</button>}
+                    <button className="leave-btn" onClick={() => onLeaveChat(activeChat)}>🚪</button>
+                </div>
             </div>
 
-            {/* Модальне вікно профілю */}
-            {showProfile && (
+            {showProfile && !activeChat.isGroup && (
                 <div className="modal-overlay" onClick={() => setShowProfile(false)}>
                     <div className="profile-card" onClick={e => e.stopPropagation()}>
-                        <img
-                            src={activeChat.avatar_url || 'https://cdn-icons-png.flaticon.com/512/149/149071.png'}
-                            alt="avatar"
-                            className="avatar-small"
-                            onError={(e) => { e.target.src = 'https://cdn-icons-png.flaticon.com/512/149/149071.png'; }}
-                        />
-                        <h3>{activeChat.username}</h3>
-                        <p><strong>Про себе:</strong> {activeChat.bio || 'Інформація відсутня'}</p>
-                        <p><strong>День народження:</strong> {activeChat.birthday ? new Date(activeChat.birthday).toLocaleDateString() : 'Не вказано'}</p>
-                        <button onClick={() => setShowProfile(false)}>Закрити</button>
+                        <div className="profile-avatar-container">
+                            <img
+                                src={activeChat.avatar_url || defaultAvatar}
+                                alt=""
+                                className="profile-avatar-large"
+                                onError={(e) => e.target.src = defaultAvatar}
+                            />
+                        </div>
+                        <h3 className="profile-name">{activeChat.username}</h3>
+                        <div className="profile-details">
+                            <p><strong>Про себе:</strong> {activeChat.bio || "Не вказано"}</p>
+                            <p><strong>День народження:</strong> {activeChat.birthday ? new Date(activeChat.birthday).toLocaleDateString() : "Не вказано"}</p>
+                        </div>
+                        <button className="modal-close-btn" onClick={() => setShowProfile(false)}>Закрити</button>
                     </div>
                 </div>
             )}
 
             <div className="chat-messages">
-                {messages.map((msg, idx) => {
+                {messages.map((msg) => {
                     const isMine = msg.sender_id === currentUser.id;
                     return (
-                        <div key={idx} className={`message ${isMine ? 'my-msg' : 'their-msg'}`}>
-                            {msg.content}
+                        <div key={msg.id || Math.random()} className={`message-row ${isMine ? 'mine' : 'theirs'}`}>
+                            <div className="bubble-container">
+                                {!isMine && activeChat.isGroup && <span className="sender-name">{msg.sender_name}</span>}
+                                <div className="message-bubble">
+                                    {msg.content}
+                                    <span className="msg-time">
+                                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                </div>
+                            </div>
                         </div>
                     );
                 })}
                 <div ref={messagesEndRef} />
             </div>
 
-            <form className="chat-input-form" onSubmit={handleSend}>
-                <input
-                    value={text}
-                    onChange={(e) => setText(e.target.value)}
-                    placeholder="Напишіть повідомлення..."
-                    autoFocus
-                />
-                <button type="submit">Надіслати</button>
+            <form className="chat-input-area" onSubmit={handleSend}>
+                <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Напишіть повідомлення..." />
+                <button type="submit" disabled={!text.trim()}>➤</button>
             </form>
-        </>
+        </div>
     );
 };
 

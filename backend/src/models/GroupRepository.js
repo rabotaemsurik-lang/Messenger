@@ -38,6 +38,36 @@ class GroupRepository {
     async addMember(groupId, userId) {
         await pool.query('INSERT INTO group_members (group_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [groupId, userId]);
     }
+    // backend/src/models/GroupRepository.js
+
+    async isMember(groupId, userId) {
+        const res = await pool.query(
+            'SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2',
+            [groupId, userId]
+        );
+        return res.rows.length > 0;
+    }
+
+    async addMember(groupId, userId) {
+        return await pool.query(
+            'INSERT INTO group_members (group_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+            [groupId, userId]
+        );
+    }
+
+    async removeMember(groupId, userId) {
+        return await pool.query(
+            'DELETE FROM group_members WHERE group_id = $1 AND user_id = $2',
+            [groupId, userId]
+        );
+    }
+
+    async deleteGroupIfEmpty(groupId) {
+        const res = await pool.query('SELECT COUNT(*) FROM group_members WHERE group_id = $1', [groupId]);
+        if (parseInt(res.rows[0].count) === 0) {
+            await pool.query('DELETE FROM groups WHERE id = $1', [groupId]);
+        }
+    }
     async createGroupWithMember(name, creatorId, memberUsername) {
         const client = await pool.connect();
         try {
