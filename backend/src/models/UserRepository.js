@@ -20,6 +20,17 @@ class UserRepository {
         return res.rows[0];
     }
 
+
+// UserRepository.js
+    async updateProfile(userId, { bio, birthday, avatar_url }) {
+        const res = await pool.query(
+            `UPDATE users 
+         SET bio = $1, birthday = $2, avatar_url = $3 
+         WHERE id = $4 RETURNING id, username, bio, birthday, avatar_url`,
+            [bio, birthday, avatar_url, userId]
+        );
+        return res.rows[0];
+    }
     // Для сумісності з іншими частинами коду
     async getAllUsers() {
         const res = await pool.query('SELECT id, username, theme, avatar_url FROM users');
@@ -30,11 +41,12 @@ class UserRepository {
         await pool.query('UPDATE users SET theme = $1 WHERE id = $2', [theme, userId]);
     }
 
+// В UserRepository.js змініть метод getActiveChats
     async getActiveChats(userId) {
         const query = `
-            SELECT DISTINCT u.id, u.username, u.avatar_url 
+            SELECT DISTINCT u.id, u.username, u.avatar_url, u.bio, u.birthday
             FROM users u
-            JOIN messages m ON (u.id = m.sender_id OR u.id = m.receiver_id)
+                     JOIN messages m ON (u.id = m.sender_id OR u.id = m.receiver_id)
             WHERE (m.sender_id = $1 OR m.receiver_id = $1) AND u.id != $1
         `;
         const res = await pool.query(query, [userId]);

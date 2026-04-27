@@ -4,6 +4,7 @@ import axiosInstance from './api/axiosInstance';
 import Auth from './components/Auth';
 import ChatWindow from './components/ChatWindow';
 import './App.css';
+import EditProfileModal from './components/EditProfileModal'; // Перевір шлях до файлу!
 
 // Ініціалізуємо сокет з відключеним автопідключенням (підключимо після авторизації)
 // В App.jsx (вище за функцію App)
@@ -17,7 +18,7 @@ function App() {
     const [theme, setTheme] = useState('light');
     const [chats, setChats] = useState([]);
     const [activeChat, setActiveChat] = useState(null);
-
+    const [showEditProfile, setShowEditProfile] = useState(false);
     // Завантаження списку чатів
     const loadChats = async (userId) => {
         try {
@@ -148,10 +149,11 @@ function App() {
             <div className="sidebar">
                 <div className="sidebar-header">
                     <h3>Вітаємо, {user.username}</h3>
-                    <button onClick={toggleTheme}>Змінити тему ({theme})</button>
-                    <button onClick={handleLogout} style={{ marginTop: '5px', background: '#dc3545', color: 'white', border: 'none' }}>
-                        Вихід
+                    <button onClick={() => setShowEditProfile(true)} style={{ background: '#28a745', color: 'white' }}>
+                        ⚙️ Налаштування профілю
                     </button>
+                    <button onClick={toggleTheme}>Змінити тему ({theme})</button>
+                    <button onClick={handleLogout} className="logout-btn">Вихід</button>
                 </div>
 
                 <div className="chat-list">
@@ -187,6 +189,13 @@ function App() {
                     <div className="empty-state">Оберіть чат ліворуч або додайте новий, щоб почати спілкування</div>
                 )}
             </div>
+            {showEditProfile && (
+                <EditProfileModal
+                    user={user}
+                    onClose={() => setShowEditProfile(false)}
+                    onUpdate={(updatedData) => setUser({...user, ...updatedData})}
+                />
+            )}
         </div>
     );
 }

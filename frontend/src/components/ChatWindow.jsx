@@ -54,12 +54,38 @@ const ChatWindow = ({ activeChat, currentUser, socket }) => {
 
         setText('');
     };
-
+    const [showProfile, setShowProfile] = useState(false);
     return (
         <>
-            <div className="chat-header">
+
+            <div className="chat-header" style={{ cursor: 'pointer' }} onClick={() => setShowProfile(true)}>
+                <img
+                    src={activeChat.avatar_url || 'https://cdn-icons-png.flaticon.com/512/149/149071.png'}
+                    alt="avatar"
+                    className="avatar-small"
+                    onError={(e) => { e.target.src = 'https://cdn-icons-png.flaticon.com/512/149/149071.png'; }}
+                />
                 <h2>{activeChat.username}</h2>
+                <span className="info-hint">Натисніть, щоб глянути профіль</span>
             </div>
+
+            {/* Модальне вікно профілю */}
+            {showProfile && (
+                <div className="modal-overlay" onClick={() => setShowProfile(false)}>
+                    <div className="profile-card" onClick={e => e.stopPropagation()}>
+                        <img
+                            src={activeChat.avatar_url || 'https://cdn-icons-png.flaticon.com/512/149/149071.png'}
+                            alt="avatar"
+                            className="avatar-small"
+                            onError={(e) => { e.target.src = 'https://cdn-icons-png.flaticon.com/512/149/149071.png'; }}
+                        />
+                        <h3>{activeChat.username}</h3>
+                        <p><strong>Про себе:</strong> {activeChat.bio || 'Інформація відсутня'}</p>
+                        <p><strong>День народження:</strong> {activeChat.birthday ? new Date(activeChat.birthday).toLocaleDateString() : 'Не вказано'}</p>
+                        <button onClick={() => setShowProfile(false)}>Закрити</button>
+                    </div>
+                </div>
+            )}
 
             <div className="chat-messages">
                 {messages.map((msg, idx) => {

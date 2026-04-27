@@ -43,6 +43,29 @@ app.get('/api/messages/history', async (req, res) => {
         res.status(500).json({ error: "Не вдалося завантажити історію" });
     }
 });
+// Отримати дані профілю будь-якого юзера
+app.get('/api/users/:id', async (req, res) => {
+    try {
+        const user = await userRepository.findById(req.params.id);
+        if (!user) return res.status(404).json({ error: "Юзера не знайдено" });
+        // Не віддаємо пароль!
+        const { password_hash, ...publicProfile } = user;
+        res.json(publicProfile);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Оновити свій профіль
+app.put('/api/users/profile', async (req, res) => {
+    try {
+        const { userId, bio, birthday, avatar_url } = req.body;
+        const updatedUser = await userRepository.updateProfile(userId, { bio, birthday, avatar_url });
+        res.json(updatedUser);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
