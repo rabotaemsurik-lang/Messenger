@@ -1,17 +1,207 @@
-Real-Time MessengerСучасний веб-месенджер для миттєвого обміну повідомленнями. Побудований на технологіях Node.js (Express), PostgreSQL та React. Реалізує повноцінний цикл спілкування: від реєстрації та налаштування профілю до приватних діалогів та групових чатів у реальному часі.ФункціональністьАвтентифікація — безпечна реєстрація та вхід з використанням JWT та хешування паролів (bcrypt).Приватні чати — пошук користувачів за нікнеймом та миттєвий обмін повідомленнями.Групові чати — створення груп, додавання учасників та спільне спілкування.Керування профілем — зміна аватара, біографії та дати народження.Персоналізація — підтримка світлої та темної тем з автоматичним збереженням вибору в базі даних.Real-time оновлення — використання WebSockets для миттєвого відображення повідомлень, нових чатів та статусів.Історія повідомлень — повне збереження та завантаження історії для всіх типів чатів.ТехнологіїШарТехнологіяBackendNode.js, Express.jsReal-timeSocket.ioORM / DBPostgreSQL (pg pool)FrontendReact (Hooks, Context), AxiosSecurityJWT, BcryptEnvironmentDocker, DotenvЗапуск локальноВимогиNode.js (v18+)PostgreSQLКрокиКлонувати репозиторій:Bashgit clone https://github.com/rabotaemsurik-lang/Messenger.git
-cd Messenger
-Налаштувати Backend:Перейдіть у папку сервера: cd backend.Створіть файл .env (використовуйте зразок з коду):Фрагмент кодуDB_HOST=localhost
-DB_USER=your_user
-DB_PASSWORD=your_password
-DB_NAME=messenger_db
-JWT_SECRET=super_secret_key
-Встановіть залежності та запустіть:Bashnpm install
-npm start
-Налаштувати Frontend:Перейдіть у папку клієнта: cd ../frontend.Встановіть залежності та запустіть:Bashnpm install
-npm run dev
-Структура проєктуbackend/src/config/ — конфігурація БД (Singleton Pool).backend/src/controllers/ — обробка HTTP запитів (Auth, User).backend/src/models/ — репозиторії для доступу до даних (UserRepository, MessageRepository, GroupRepository).backend/src/services/ — бізнес-логіка чатів та груп (ChatService, GroupService).frontend/src/components/ — UI компоненти (Auth, ChatWindow, EditProfileModal).frontend/src/api/ — налаштування Axios інстансу.Патерни проєктування1. Singleton — Database PoolФайл: backend/src/config/db.jsВикористовується для забезпечення єдиної точки доступу до бази даних. Об'єкт pool створюється один раз і перевикористовується всіма репозиторіями, що запобігає витоку пам'яті та надмірному навантаженню на PostgreSQL.JavaScriptconst pool = new Pool({ ... });
-module.exports = pool; // Експортується єдиний екземпляр
-2. Repository — Data Access LayerФайли: models/UserRepository.js, models/GroupRepository.jsВся логіка SQL-запитів винесена в окремі класи репозиторіїв. Це дозволяє контролерам та сервісам не знати про структуру таблиць БД, а працювати з методами на кшталт findByUsername або saveMessage.3. Factory (Спрощений) — Message CreationФайл: services/ChatService.jsСервіс виступає в ролі фабрики, яка перед збереженням повідомлення "збирає" його, перевіряє на валідність (Fail Fast) та готує об'єкт для широкомовлення через сокети.Принципи програмування та SOLID1. Single Responsibility Principle (SRP)Кожен клас виконує лише свою роль.AuthController — лише обробка запитів входу/реєстрації.GroupService — лише логіка розсилки повідомлень учасникам групи.useChatWebSocket — виключно логіка з'єднання, відокремлена від UI.2. Open/Closed Principle (OCP)Файл: controllers/UserController.jsКонтролер спроектований так, що ми можемо додавати нові типи звітів або методів отримання користувачів, не змінюючи базову логіку маршрутизації.3. Dependency Inversion Principle (DIP)Файл: services/ChatService.jsСервіси залежать не від конкретних реалізацій SQL-запитів, а від абстракцій (методів репозиторіїв). Це полегшує тестування та підтримку коду.4. Interface Segregation Principle (ISP)Файл: components/UserList.jsxКомпонент UserList приймає мінімально необхідний набір пропсів (users, onSelectUser), не перевантажуючись даними про повідомлення чи налаштування профілю.5. Fail FastФайл: controllers/AuthController.jsПрограма негайно перериває виконання, якщо обов'язкові дані (username/password) відсутні, не витрачаючи ресурси на запити до БД.JavaScriptif (!username || !password) {
-   return res.status(400).json({ error: "Заповніть всі поля" });
-   }
-6. Separation of Concerns (SoC)Логіка WebSocket повністю винесена в кастомний хук useChatWebSocket.js. Це дозволяє UI-компонентам залишатися "чистими" і відповідати тільки за відображення даних, тоді як хук керує життєвим циклом з'єднання.Рефакторинг та Clean CodeExtract Method: Хешування пароля винесено в окремий процес у AuthController, що робить реєстрацію чистішою.Rename Variable: Використання змістовних назв (наприклад, isMessageValid замість умови if (text !== '')).Inline Function: Спрощення обробки помилок у UserController для підвищення читабельності.Decompose Conditional: Логіка визначення "своє/чуже" повідомлення в ChatWindow винесена у змінні для кращого розуміння рендерингу.Repository: Messenger on GitHub
+# Real-Time Messenger
+
+Сучасний веб-месенджер для миттєвого обміну повідомленнями. Побудований на технологіях **Node.js (Express)**, **PostgreSQL** та **React**.
+
+Проєкт реалізує повноцінний цикл спілкування: від безпечної реєстрації до приватних діалогів та групових чатів у реальному часі.
+
+---
+
+## Функціональність
+
+* **Автентифікація** — безпечна реєстрація та вхід з використанням JWT та хешування паролів (bcrypt).
+* **Приватні чати** — пошук користувачів за нікнеймом та миттєвий обмін повідомленнями.
+* **Групові чати** — створення груп, додавання учасників та спільне спілкування.
+* **⚙Керування профілем** — зміна аватара, біографії та дати народження.
+* **Персоналізація** — підтримка світлої та темної тем з автоматичним збереженням вибору в базі даних.
+* **Real-time оновлення** — використання WebSockets (Socket.io) для миттєвого відображення повідомлень та статусів.
+* **Історія повідомлень** — повне збереження та завантаження історії для всіх типів чатів.
+
+---
+
+## Технології
+
+| Шар | Технологія |
+| :--- | :--- |
+| **Backend** | Node.js, Express.js |
+| **Real-time** | Socket.io |
+| **ORM / DB** | PostgreSQL (pg pool) |
+| **Frontend** | React (Hooks, Context), Axios |
+| **Security** | JWT, Bcrypt |
+| **DevOps** | Docker, Docker Compose, Dotenv |
+
+---
+
+## 📂 Структура проєкту
+
+```text
+FinalProject/
+├── backend/
+│   ├── src/
+│   │   ├── config/          # Конфігурація БД (Singleton Pool)
+│   │   ├── controllers/     # Обробка HTTP запитів (Auth, User)
+│   │   ├── models/          # Репозиторії (UserRepository, MessageRepository, тощо)
+│   │   ├── services/        # Бізнес-логіка чатів та груп
+│   │   └── server.js        # Точка входу сервера
+│   ├── Dockerfile
+│   └── init.sql             # Схема бази даних
+├── frontend/
+│   ├── src/
+│   │   ├── api/             # Налаштування Axios
+│   │   ├── components/      # UI компоненти (Auth, ChatWindow, UserList)
+│   │   ├── hooks/           # Кастомні хуки (useChatWebSocket)
+│   │   ├── App.jsx
+│   │   └── main.jsx
+│   └── vite.config.js
+└── docker-compose.yml       # Оркестрація контейнерів
+```
+## 🏗 Архітектурні принципи та Патерни проєктування
+
+Цей проєкт побудований з дотриманням сучасних стандартів розробки, що забезпечує **гнучкість, масштабованість та чистоту коду**.  
+Нижче наведено перелік ключових концепцій, реалізованих у месенджері.
+
+---
+
+## Патерни проєктування
+
+### 1. Singleton (Одинак)
+
+**Де використовується:**  
+`backend/src/config/db.js`
+
+Об'єкт `Pool` для підключення до PostgreSQL створюється один раз і експортується як єдиний екземпляр.
+
+**Навіщо:**  
+Це дозволяє уникнути створення сотень зайвих з'єднань з базою даних та запобігає витокам пам'яті.  
+Всі репозиторії використовують один і той самий пул.
+
+---
+
+### 2. Repository (Репозиторій)
+
+**Де використовується:**  
+`models/UserRepository.js`  
+`models/MessageRepository.js`  
+`models/GroupRepository.js`
+
+Вся логіка SQL-запитів ізольована в окремих класах.
+
+**Навіщо:**  
+Контролери не знають про структуру таблиць.  
+Якщо змінити SQL на NoSQL (наприклад, MongoDB), потрібно змінити лише папку `models`.
+
+---
+
+### 3. Factory (Фабрика — спрощена)
+
+**Де використовується:**  
+`services/ChatService.js`
+
+Метод `saveAndBroadcastMessage` виступає як фабрика:
+- створює об'єкт повідомлення
+- валідовує його
+- готує до відправки
+
+---
+
+## Принципи SOLID
+
+### 1. Single Responsibility Principle (SRP)
+
+Кожен клас виконує лише одну відповідальність.
+
+**Приклад:**  
+`AuthController` обробляє тільки HTTP-запити входу/реєстрації.  
+Він не знає:
+- як хешується пароль
+- як дані записуються в БД
+
+---
+
+### 2. Open/Closed Principle (OCP)
+
+Код відкритий для розширення, але закритий для змін.
+
+**Приклад:**  
+`UserController` дозволяє додавати нові методи отримання користувачів без зміни існуючої логіки.
+
+---
+
+### 3. Dependency Inversion Principle (DIP)
+
+Високорівневі модулі не залежать від низькорівневих.
+
+**Приклад:**  
+`ChatService` працює через методи репозиторіїв, а не напряму з SQL.
+
+---
+
+## Clean Code та Рефакторинг
+
+### Fail Fast
+
+У методах `register` та `handleConnection` програма одразу завершує виконання при невалідних даних:
+
+```js
+if (!username || !password) {
+    return res.status(400).json({ error: "Заповніть всі поля" });
+}
+```
+Це економить ресурси сервера та запобігає зайвим запитам до БД.
+
+---
+
+### Separation of Concerns
+
+Логіка WebSocket повністю відокремлена від HTTP:
+
+- `ChatService` — бізнес-логіка повідомлень
+- `GroupService` — логіка груп
+- `server.js` — тільки маршрутизація socket.io
+
+---
+
+## Техніки рефакторингу
+
+### Extract Variable
+
+У `ChatService`:
+- умова перевірки винесена в `isMessageValid`
+
+---
+
+### Inline Function
+
+У `UserController`:
+- проста обробка помилок зроблена в один рядок
+
+---
+
+### Decompose Conditional
+
+У `ChatWindow.jsx`:
+- логіка `isMine` винесена в окрему змінну
+
+---
+
+## Інфраструктурні рішення
+
+### Environment Variables (.env)
+
+Всі чутливі дані винесені в `init.sql`:
+
+- паролі БД
+- JWT секрети
+
+ Відповідає підходу **12-Factor App**
+
+---
+
+### Axios Singleton
+
+Створено `axiosInstance`:
+
+- централізований `baseURL`
+- автоматичні заголовки
+- легке масштабування API-запитів  
+
+
