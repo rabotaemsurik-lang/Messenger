@@ -1,0 +1,115 @@
+/* Auth.css */
+
+/* Контейнер на весь екран, центрує картку */
+.auth-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background-color: #f0f2f5; /* Світло-сірий фон, приємний для очей */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Сама картка з формою */
+.auth-card {
+    background-color: #ffffff;
+    padding: 40px 30px;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    max-width: 400px;
+    box-sizing: border-box;
+}
+
+/* Заголовок (наприклад, "Вхід" або "Реєстрація") */
+.auth-title {
+    text-align: center;
+    margin-top: 0;
+    margin-bottom: 24px;
+    color: #1c1e21;
+    font-size: 24px;
+    font-weight: 600;
+}
+
+/* Контейнер самої форми */
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px; /* Відстань між полями */
+}
+
+/* Поля вводу (email, пароль) */
+.auth-input {
+    width: 100%;
+    padding: 14px 16px;
+    border: 1px solid #ccd0d5;
+    border-radius: 8px;
+    font-size: 16px;
+    box-sizing: border-box;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.auth-input:focus {
+    outline: none;
+    border-color: #1877f2; /* Синій колір при фокусі */
+    box-shadow: 0 0 0 2px rgba(24, 119, 242, 0.2);
+}
+
+/* Кнопка "Увійти" / "Зареєструватися" */
+.auth-button {
+    width: 100%;
+    padding: 14px;
+    background-color: #1877f2;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    margin-top: 8px;
+}
+
+.auth-button:hover {
+    background-color: #166fe5;
+}
+
+.auth-button:disabled {
+    background-color: #a0c3ff;
+    cursor: not-allowed;
+}
+
+/* Повідомлення про помилку (якщо пароль невірний тощо) */
+.error-message {
+    color: #e41e3f;
+    background-color: #ffebe8;
+    padding: 10px;
+    border-radius: 6px;
+    font-size: 14px;
+    text-align: center;
+    margin-bottom: 10px;
+}
+
+/* Текст під кнопкою (перемикач між Входом і Реєстрацією) */
+.auth-toggle {
+    text-align: center;
+    margin-top: 20px;
+    font-size: 14px;
+    color: #606770;
+}
+
+.auth-toggle-btn {
+    color: #1877f2;
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    margin-left: 5px;
+}
+
+.auth-toggle-btn:hover {
+    text-decoration: underline;
+}
