@@ -3,197 +3,193 @@ import { io } from 'socket.io-client';
 import axiosInstance from './api/axiosInstance';
 import Auth from './components/Auth';
 import ChatWindow from './components/ChatWindow';
+import EditProfileModal from './components/EditProfileModal';
 import './App.css';
-import EditProfileModal from './components/EditProfileModal'; // Перевір шлях до файлу!
 
-// Ініціалізуємо сокет з відключеним автопідключенням (підключимо після авторизації)
-// В App.jsx (вище за функцію App)
-const socket = io('http://localhost:5000', { // <--- Прибери тут import.meta.env
+const socket = io('http://localhost:5000', {
     autoConnect: false
 });
 
 function App() {
+    const [groups, setGroups] = useState([]);
     const [user, setUser] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [theme, setTheme] = useState('light');
     const [chats, setChats] = useState([]);
     const [activeChat, setActiveChat] = useState(null);
     const [showEditProfile, setShowEditProfile] = useState(false);
-    // Завантаження списку чатів
+
     const loadChats = async (userId) => {
         try {
             const res = await axiosInstance.get(`/users/chats?userId=${userId}`);
             setChats(res.data);
+            // Тут також можна було б завантажити групи через API, якщо вони є в БД
         } catch (error) {
             console.error("Помилка завантаження чатів", error);
         }
     };
 
-    // 1. Перевірка сесії при першому завантаженні
     useEffect(() => {
         const checkAuth = async () => {
             const token = localStorage.getItem('token');
             if (token) {
                 try {
-                    // Встановлюємо токен для всіх наступних запитів
                     axiosInstance.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-                    const res = await axiosInstance.get('/auth/me'); // Цей ендпоінт ми додали в AuthController
-
+                    const res = await axiosInstance.get('/auth/me');
                     const userData = res.data.user;
                     setUser(userData);
-
-                    // Відновлюємо тему
                     setTheme(userData.theme || 'light');
                     document.documentElement.setAttribute('data-theme', userData.theme || 'light');
-
-                    // Завантажуємо чати
                     loadChats(userData.id);
                 } catch (e) {
-                    console.error("Токен недійсний або протермінований");
                     localStorage.removeItem('token');
                     delete axiosInstance.defaults.headers.common['Authorization'];
                 }
             }
             setIsLoading(false);
         };
-
         checkAuth();
     }, []);
 
-    // 2. Підключення сокетів ТІЛЬКИ після успішної авторизації
     useEffect(() => {
         if (!user) return;
 
         socket.connect();
-        // Реєструємо сокет-з'єднання для цього користувача
         socket.emit('register', user.username);
 
-        // Обробка помилок сокета
-        socket.on('error_msg', (msg) => {
-            alert("Помилка: " + msg);
+        socket.on('error_msg', (msg) => alert("Помилка: " + msg));
+
+        socket.on('group_created', (newGroup) => {
+            setGroups(prev => [...prev, newGroup]);
+            setActiveChat({ ...newGroup, isGroup: true });
         });
 
-        // Коли ми успішно додали когось у чат
-// В App.jsx всередині useEffect для сокетів
         socket.on('chat_added', (targetUser) => {
             setChats(prev => {
-                // Перевіряємо, чи немає вже такого чату в списку
                 if (!prev.find(c => c.id === targetUser.id)) {
                     return [...prev, targetUser];
                 }
                 return prev;
             });
-            setActiveChat(targetUser); // Одразу відкриваємо вікно чату
+            setActiveChat(targetUser);
         });
 
-        // Коли приходить повідомлення від нового співрозмовника
-        socket.on('users_updated', () => {
-            loadChats(user.id);
-        });
+        socket.on('users_updated', () => loadChats(user.id));
 
         return () => {
             socket.off('error_msg');
+            socket.off('group_created');
             socket.off('chat_added');
             socket.off('users_updated');
             socket.disconnect();
         };
     }, [user]);
 
-    // Обробка успішного входу/реєстрації з компонента Auth
     const handleLoginSuccess = (userData) => {
         setUser(userData);
         setTheme(userData.theme || 'light');
         document.documentElement.setAttribute('data-theme', userData.theme || 'light');
         loadChats(userData.id);
-
         const token = localStorage.getItem('token');
         axiosInstance.defaults.headers.common['Authorization'] = `Bearer ${token}`;
     };
 
+    const handleCreateGroup = () => {
+        const groupName = prompt("Введіть назву групи:");
+        if (!groupName) return;
+
+        const memberName = prompt("Введіть username першого учасника (обов'язково):");
+        if (!memberName) {
+            alert("Група повинна мати хоча б одного учасника!");
+            return;
+        }
+
+        // Відправляємо на бекенд назву групи та ім'я першого учасника
+        socket.emit('create_group', {
+            name: groupName.trim(),
+            creatorId: user.id,
+            initialMemberName: memberName.trim()
+        });
+    };
+
     const handleLogout = () => {
         localStorage.removeItem('token');
-        delete axiosInstance.defaults.headers.common['Authorization'];
-        socket.disconnect();
         setUser(null);
-        window.location.reload(); // Перезавантажуємо сторінку для очищення стейту
+        window.location.reload();
     };
 
     const toggleTheme = () => {
         const newTheme = theme === 'light' ? 'dark' : 'light';
         setTheme(newTheme);
         document.documentElement.setAttribute('data-theme', newTheme);
-        socket.emit('update_theme', { theme: newTheme }); // Зберігаємо в БД
+        socket.emit('update_theme', { theme: newTheme });
     };
 
     const handleAddChat = () => {
-        const name = prompt("Введіть username користувача, якому хочете написати:");
+        const name = prompt("Введіть username користувача:");
         if (name && name.trim() !== '') {
             socket.emit('add_chat', name.trim());
         }
     };
 
-    // Екран завантаження, поки перевіряється токен
-    if (isLoading) {
-        return <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center' }}>Завантаження...</div>;
-    }
+    if (isLoading) return <div className="loading">Завантаження...</div>;
+    if (!user) return <Auth onLoginSuccess={handleLoginSuccess} />;
 
-    // Якщо користувач не авторизований — показуємо компонент авторизації
-    if (!user) {
-        return <Auth onLoginSuccess={handleLoginSuccess} />;
-    }
-
-    // Головний інтерфейс месенджера
     return (
         <div className="app-container">
-            {/* Ліва панель */}
             <div className="sidebar">
                 <div className="sidebar-header">
-                    <h3>Вітаємо, {user.username}</h3>
-                    <button onClick={() => setShowEditProfile(true)} style={{ background: '#28a745', color: 'white' }}>
-                        ⚙️ Налаштування профілю
-                    </button>
-                    <button onClick={toggleTheme}>Змінити тему ({theme})</button>
-                    <button onClick={handleLogout} className="logout-btn">Вихід</button>
+                    <h3>{user.username}</h3>
+                    <div className="header-buttons">
+                        <button onClick={() => setShowEditProfile(true)}>⚙️ Профіль</button>
+                        <button onClick={toggleTheme}>{theme === 'light' ? '🌙' : '☀️'}</button>
+                        <button onClick={handleLogout} className="logout-btn">🚪</button>
+                    </div>
                 </div>
 
                 <div className="chat-list">
-                    {chats.length === 0 ? (
-                        <p style={{ padding: '20px', textAlign: 'center', color: 'gray' }}>У вас ще немає чатів</p>
-                    ) : (
-                        chats.map(c => (
-                            <div
-                                key={c.id}
-                                onClick={() => setActiveChat(c)}
-                                className={`chat-item ${activeChat?.id === c.id ? 'active' : ''}`}
-                            >
+                    <div className="list-section">
+                        <h4>💬 Приватні чати</h4>
+                        {chats.map(c => (
+                            <div key={c.id}
+                                 onClick={() => setActiveChat({...c, isGroup: false})}
+                                 className={`chat-item ${activeChat?.id === c.id && !activeChat.isGroup ? 'active' : ''}`}>
                                 {c.username}
                             </div>
-                        ))
-                    )}
+                        ))}
+                    </div>
+
+                    <div className="list-section">
+                        <h4>👥 Групи</h4>
+                        {groups.map(g => (
+                            <div key={g.id}
+                                 onClick={() => setActiveChat({...g, isGroup: true})}
+                                 className={`chat-item group-item ${activeChat?.id === g.id && activeChat.isGroup ? 'active' : ''}`}>
+                                # {g.name}
+                            </div>
+                        ))}
+                    </div>
                 </div>
 
-                <div className="add-chat-btn" onClick={handleAddChat}>
-                    + Додати чат
+                <div className="sidebar-actions">
+                    <button className="action-btn add-user" onClick={handleAddChat}>+ Користувач</button>
+                    <button className="action-btn add-group" onClick={handleCreateGroup}>+ Група</button>
                 </div>
             </div>
 
-            {/* Центральна панель чату */}
             <div className="chat-main">
                 {activeChat ? (
-                    <ChatWindow
-                        activeChat={activeChat}
-                        currentUser={user}
-                        socket={socket}
-                    />
+                    <ChatWindow activeChat={activeChat} currentUser={user} socket={socket} />
                 ) : (
-                    <div className="empty-state">Оберіть чат ліворуч або додайте новий, щоб почати спілкування</div>
+                    <div className="empty-state">Оберіть чат або створіть групу</div>
                 )}
             </div>
+
             {showEditProfile && (
                 <EditProfileModal
                     user={user}
                     onClose={() => setShowEditProfile(false)}
-                    onUpdate={(updatedData) => setUser({...user, ...updatedData})}
+                    onUpdate={(updatedData) => setUser(prev => ({...prev, ...updatedData}))}
                 />
             )}
         </div>

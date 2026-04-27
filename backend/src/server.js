@@ -2,31 +2,32 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const pool = require('./config/db');
 
+// Імпорт сервісів та репозиторіїв
 const chatService = require('./services/ChatService');
+const groupService = require('./services/GroupService');
 const userRepository = require('./models/UserRepository');
 const messageRepository = require('./models/MessageRepository');
+const groupRepo = require('./models/GroupRepository');
 
-// 1. Імпортуємо контролер тут:
+// Імпорт контролерів
 const AuthController = require('./controllers/AuthController');
 
-// 2. СТВОРЮЄМО app! (Це має бути ДО твоїх маршрутів)
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 5000;
 
-// 3. І ТІЛЬКИ ТЕПЕР додаємо всі маршрути (бо app вже існує):
+// --- API МАРШРУТИ ---
 app.post('/api/auth/register', AuthController.register);
 app.post('/api/auth/login', AuthController.login);
 app.get('/api/auth/me', AuthController.getMe);
 
-// Ендпоінти для API
 app.get('/api/users/chats', async (req, res) => {
     try {
         const { userId } = req.query;
-        // [Pattern: Repository] — Отримуємо лише активні чати користувача
         const chats = await userRepository.getActiveChats(userId);
         res.json(chats);
     } catch (err) {
@@ -43,12 +44,11 @@ app.get('/api/messages/history', async (req, res) => {
         res.status(500).json({ error: "Не вдалося завантажити історію" });
     }
 });
-// Отримати дані профілю будь-якого юзера
+
 app.get('/api/users/:id', async (req, res) => {
     try {
         const user = await userRepository.findById(req.params.id);
         if (!user) return res.status(404).json({ error: "Юзера не знайдено" });
-        // Не віддаємо пароль!
         const { password_hash, ...publicProfile } = user;
         res.json(publicProfile);
     } catch (err) {
@@ -56,7 +56,6 @@ app.get('/api/users/:id', async (req, res) => {
     }
 });
 
-// Оновити свій профіль
 app.put('/api/users/profile', async (req, res) => {
     try {
         const { userId, bio, birthday, avatar_url } = req.body;
@@ -67,26 +66,23 @@ app.put('/api/users/profile', async (req, res) => {
     }
 });
 
+// --- СЕРВЕР ТА SOCKET.IO ---
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
 const activeSockets = new Map(); // userId -> socketId
 
-// [Pattern: Observer] — Обробка подій через WebSockets
 io.on('connection', (socket) => {
+    console.log('Нове підключення:', socket.id);
 
-    // --- АВТОРИЗАЦІЯ ---
-// В server.js всередині io.on('connection')
+    // 1. АВТОРИЗАЦІЯ В СОКЕТАХ
     socket.on('register', async (username) => {
         try {
             if (!username) return socket.emit('error_msg', 'Username обов’язковий');
-
             const user = await userRepository.findByUsername(username);
 
             if (!user) {
-                // Якщо юзера немає, ми не створюємо його тут!
-                // Він мав зареєструватися через форму.
-                return socket.emit('error_msg', 'Користувача не знайдено. Будь ласка, зареєструйтесь.');
+                return socket.emit('error_msg', 'Користувача не знайдено');
             }
 
             socket.userId = user.id;
@@ -95,50 +91,22 @@ io.on('connection', (socket) => {
 
             socket.emit('auth_success', { user, status: 'login' });
         } catch (err) {
-            socket.emit('error_msg', 'Помилка авторизації в сокетах');
+            socket.emit('error_msg', 'Помилка авторизації');
         }
     });
 
-    // --- ДОДАВАННЯ ЧАТУ (ПОШУК ЮЗЕРА) ---
-    socket.on('add_chat', async (targetUsername) => {
-        console.log(`Користувач ${socket.username} шукає: ${targetUsername}`); // Додай це!
-        try {
-            const targetUser = await userRepository.findByUsername(targetUsername);
-
-            if (!targetUser) {
-                // [Principle: Error Handling] — Повідомляємо, якщо юзера не існує
-                return socket.emit('error_msg', `Користувача "${targetUsername}" не знайдено`);
-            }
-
-            if (targetUser.id === socket.userId) {
-                return socket.emit('error_msg', 'Ви не можете додати себе в чат');
-            }
-
-            // Повертаємо дані знайденого юзера для відкриття чату на фронті
-            socket.emit('chat_added', targetUser);
-        } catch (err) {
-            socket.emit('error_msg', 'Помилка при пошуку користувача');
-        }
-    });
-
-    // --- НАДІСЛАННЯ ПОВІДОМЛЕННЯ ---
+    // 2. ПРИВАТНІ ПОВІДОМЛЕННЯ
     socket.on('send_message', async (data) => {
         const { receiverId, text } = data;
-
         try {
-            // [SOLID: SRP] — Збереження логіки повідомлень у ChatService
             const savedMsg = await chatService.saveAndBroadcastMessage(socket.userId, receiverId, text);
-
             if (savedMsg) {
                 const receiverSocket = activeSockets.get(receiverId);
                 const emitData = { ...savedMsg, sender_name: socket.username };
 
-                // Відправляємо обом (відправнику та отримувачу)
                 socket.emit('receive_message', emitData);
-
                 if (receiverSocket) {
                     io.to(receiverSocket).emit('receive_message', emitData);
-                    // Оновлюємо список чатів у отримувача, якщо це був перший контакт
                     io.to(receiverSocket).emit('users_updated');
                 }
             }
@@ -147,7 +115,59 @@ io.on('connection', (socket) => {
         }
     });
 
-    // --- ТЕМИ ТА НАЛАШТУВАННЯ ---
+    // 3. ГРУПОВІ ПОВІДОМЛЕННЯ
+    socket.on('send_group_message', async ({ groupId, text }) => {
+        try {
+            // [SOLID: Dependency Inversion] — Використовуємо сервіс для логіки розсилки
+            await groupService.sendMessageToGroup(
+                groupId,
+                socket.userId,
+                text,
+                io,
+                activeSockets
+            );
+        } catch (err) {
+            console.error("Помилка групи:", err);
+            socket.emit('error_msg', 'Помилка групового повідомлення');
+        }
+    });
+
+    // 4. СТВОРЕННЯ ГРУПИ
+    socket.on('create_group', async ({ name, creatorId, initialMemberName }) => {
+        try {
+            const newGroup = await groupRepo.createGroupWithMember(name, creatorId, initialMemberName);
+
+            // Повідомляємо творця
+            socket.emit('group_created', newGroup);
+
+            // Повідомляємо запрошеного (якщо він онлайн)
+            const invitedUser = await userRepository.findByUsername(initialMemberName);
+            const invitedSocket = activeSockets.get(invitedUser.id);
+            if (invitedSocket) {
+                io.to(invitedSocket).emit('group_created', newGroup);
+            }
+        } catch (err) {
+            socket.emit('error_msg', err.message || 'Не вдалося створити групу');
+        }
+    });
+
+    // 5. ПОШУК КОРИСТУВАЧА
+    socket.on('add_chat', async (targetUsername) => {
+        try {
+            const targetUser = await userRepository.findByUsername(targetUsername);
+            if (!targetUser) {
+                return socket.emit('error_msg', `Користувача "${targetUsername}" не знайдено`);
+            }
+            if (targetUser.id === socket.userId) {
+                return socket.emit('error_msg', 'Ви не можете додати себе');
+            }
+            socket.emit('chat_added', targetUser);
+        } catch (err) {
+            socket.emit('error_msg', 'Помилка при пошуку');
+        }
+    });
+
+    // 6. ІНШІ ПОДІЇ
     socket.on('update_theme', async ({ theme }) => {
         if (socket.userId) {
             await userRepository.updateTheme(socket.userId, theme);
@@ -155,8 +175,11 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-        if (socket.userId) activeSockets.delete(socket.userId);
+        if (socket.userId) {
+            activeSockets.delete(socket.userId);
+            console.log(`Користувач ${socket.username} відключився`);
+        }
     });
 });
 
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));

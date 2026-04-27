@@ -18,6 +18,18 @@ const ChatWindow = ({ activeChat, currentUser, socket }) => {
         };
         fetchHistory();
     }, [activeChat.id, currentUser.id]);
+    useEffect(() => {
+        socket.on('receive_message', (newMessage) => {
+            setMessages((prev) => {
+                // Перевіряємо, чи повідомлення вже існує за ID
+                const exists = prev.find(m => m.id === newMessage.id);
+                if (exists) return prev;
+                return [...prev, newMessage];
+            });
+        });
+
+        return () => socket.off('receive_message');
+    }, [socket]);
 
     // Слухаємо нові повідомлення по сокету
     useEffect(() => {

@@ -8,7 +8,13 @@ class MessageRepository {
         );
         return res.rows[0];
     }
-
+    async saveGroupMessage(senderId, groupId, content) {
+        const res = await pool.query(
+            'INSERT INTO messages (sender_id, group_id, content) VALUES ($1, $2, $3) RETURNING *',
+            [senderId, groupId, content]
+        );
+        return res.rows[0];
+    }
     async getChatHistory(user1Id, user2Id) {
         const res = await pool.query(
             `SELECT m.*, u1.username as sender_name 
