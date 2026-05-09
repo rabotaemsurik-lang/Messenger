@@ -27,6 +27,18 @@ class MessageRepository {
         );
         return res.rows;
     }
+
+    async getGroupChatHistory(groupId) {
+        const res = await pool.query(
+            `SELECT m.*, u.username as sender_name 
+         FROM messages m
+         JOIN users u ON m.sender_id = u.id
+         WHERE m.group_id = $1 
+         ORDER BY m.created_at ASC`,
+            [groupId]
+        );
+        return res.rows;
+    }
 }
 
 module.exports = new MessageRepository();

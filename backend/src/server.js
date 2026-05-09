@@ -40,12 +40,8 @@ app.get('/api/users/chats', async (req, res) => {
 app.get('/api/users/groups', async (req, res) => {
     try {
         const { userId } = req.query;
-        const groups = await pool.query(`
-            SELECT g.* FROM groups g
-            JOIN group_members gm ON g.id = gm.group_id
-            WHERE gm.user_id = $1
-        `, [userId]);
-        res.json(groups.rows);
+        const groups = await groupRepo.getGroupsByUserId(userId);
+        res.json(groups);
     } catch (err) {
         res.status(500).json({ error: "Не вдалося завантажити групи" });
     }
@@ -59,14 +55,7 @@ app.get('/api/messages/history', async (req, res) => {
 
         if (groupId) {
             // Історія групи
-            const result = await pool.query(`
-                SELECT m.*, u.username as sender_name 
-                FROM messages m
-                JOIN users u ON m.sender_id = u.id
-                WHERE m.group_id = $1 
-                ORDER BY m.created_at ASC
-            `, [groupId]);
-            history = result.rows;
+            history = await messageRepository.getGroupChatHistory(groupId);
         } else {
             // Історія приватного чату
             history = await messageRepository.getChatHistory(user1, user2);
@@ -187,8 +176,8 @@ io.on('connection', (socket) => {
     socket.on('delete_chat', async ({ groupId, receiverId }) => {
         try {
             if (groupId) {
-                // Вихід з групи (це ми вже зробили)
-                await pool.query('DELETE FROM group_members WHERE group_id = $1 AND user_id = $2', [groupId, socket.userId]);
+                // Вихід з групи
+                await groupRepo.removeMember(groupId, socket.userId);
                 await groupRepo.deleteGroupIfEmpty(groupId);
             } else if (receiverId) {
                 // Видалення особистих повідомлень (SOLID: для обох сторін або тільки для себе)
