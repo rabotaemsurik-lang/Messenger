@@ -35,10 +35,14 @@ class GroupRepository {
         return res.rows;
     }
 
+    // Single source of truth for adding a member.
+    // Returns query result for callers that may want to inspect rowCount.
     async addMember(groupId, userId) {
-        await pool.query('INSERT INTO group_members (group_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [groupId, userId]);
+        return pool.query(
+            'INSERT INTO group_members (group_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+            [groupId, userId]
+        );
     }
-    // backend/src/models/GroupRepository.js
 
     async isMember(groupId, userId) {
         const res = await pool.query(
@@ -46,13 +50,6 @@ class GroupRepository {
             [groupId, userId]
         );
         return res.rows.length > 0;
-    }
-
-    async addMember(groupId, userId) {
-        return await pool.query(
-            'INSERT INTO group_members (group_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
-            [groupId, userId]
-        );
     }
 
     async removeMember(groupId, userId) {
