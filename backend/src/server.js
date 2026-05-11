@@ -4,15 +4,14 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const pool = require('./config/db');
 
-// Імпорт сервісів та репозиторіїв
 const chatService = require('./services/ChatService');
 const groupService = require('./services/GroupService');
 const userRepository = require('./models/UserRepository');
 const messageRepository = require('./models/MessageRepository');
 const groupRepo = require('./models/GroupRepository');
 
-// Імпорт контролерів
 const AuthController = require('./controllers/AuthController');
+const { createApiRoutes } = require('./routes/apiRoutes');
 
 const app = express();
 app.use(cors());
@@ -20,89 +19,17 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 5000;
 
-// --- API МАРШРУТИ ---
-app.post('/api/auth/register', AuthController.register);
-app.post('/api/auth/login', AuthController.login);
-app.get('/api/auth/me', AuthController.getMe);
+app.use('/api', createApiRoutes({
+    AuthController,
+    pool,
+    userRepository,
+    messageRepository,
+}));
 
-// Отримання приватних чатів
-app.get('/api/users/chats', async (req, res) => {
-    try {
-        const { userId } = req.query;
-        const chats = await userRepository.getActiveChats(userId);
-        res.json(chats);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Отримання списку груп користувача (Критично для збереження груп після оновлення!)
-app.get('/api/users/groups', async (req, res) => {
-    try {
-        const { userId } = req.query;
-        const groups = await pool.query(`
-            SELECT g.* FROM groups g
-            JOIN group_members gm ON g.id = gm.group_id
-            WHERE gm.user_id = $1
-        `, [userId]);
-        res.json(groups.rows);
-    } catch (err) {
-        res.status(500).json({ error: "Не вдалося завантажити групи" });
-    }
-});
-
-// Отримання історії (Універсальне: для юзера або групи)
-app.get('/api/messages/history', async (req, res) => {
-    try {
-        const { user1, user2, groupId } = req.query;
-        let history;
-
-        if (groupId) {
-            // Історія групи
-            const result = await pool.query(`
-                SELECT m.*, u.username as sender_name 
-                FROM messages m
-                JOIN users u ON m.sender_id = u.id
-                WHERE m.group_id = $1 
-                ORDER BY m.created_at ASC
-            `, [groupId]);
-            history = result.rows;
-        } else {
-            // Історія приватного чату
-            history = await messageRepository.getChatHistory(user1, user2);
-        }
-        res.json(history);
-    } catch (err) {
-        res.status(500).json({ error: "Не вдалося завантажити історію" });
-    }
-});
-
-app.get('/api/users/:id', async (req, res) => {
-    try {
-        const user = await userRepository.findById(req.params.id);
-        if (!user) return res.status(404).json({ error: "Юзера не знайдено" });
-        const { password_hash, ...publicProfile } = user;
-        res.json(publicProfile);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-app.put('/api/users/profile', async (req, res) => {
-    try {
-        const { userId, bio, birthday, avatar_url } = req.body;
-        const updatedUser = await userRepository.updateProfile(userId, { bio, birthday, avatar_url });
-        res.json(updatedUser);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// --- СЕРВЕР ТА SOCKET.IO ---
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-const activeSockets = new Map(); // userId -> socketId
+const activeSockets = new Map();
 
 io.on('connection', (socket) => {
     console.log('Нове підключення:', socket.id);
@@ -187,12 +114,9 @@ io.on('connection', (socket) => {
     socket.on('delete_chat', async ({ groupId, receiverId }) => {
         try {
             if (groupId) {
-                // Вихід з групи (це ми вже зробили)
                 await pool.query('DELETE FROM group_members WHERE group_id = $1 AND user_id = $2', [groupId, socket.userId]);
                 await groupRepo.deleteGroupIfEmpty(groupId);
             } else if (receiverId) {
-                // Видалення особистих повідомлень (SOLID: для обох сторін або тільки для себе)
-                // Видалимо повідомлення, де я відправник або отримувач у цьому діалозі
                 await pool.query(`
                 DELETE FROM messages 
                 WHERE (sender_id = $1 AND receiver_id = $2) 
