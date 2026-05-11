@@ -1,38 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import axiosInstance from '../api/axiosInstance';
+import { useChatMessages } from '../hooks/useChatMessages';
 
 const ChatWindow = ({ activeChat, currentUser, socket, onAddMember, onLeaveChat }) => {
-    const [messages, setMessages] = useState([]);
+    const messages = useChatMessages(activeChat, currentUser, socket);
     const [text, setText] = useState('');
     const [showProfile, setShowProfile] = useState(false);
     const messagesEndRef = useRef(null);
 
     const defaultAvatar = 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
-
-    useEffect(() => {
-        if (!activeChat) return;
-        const fetchHistory = async () => {
-            try {
-                const url = activeChat.isGroup
-                    ? `/messages/history?groupId=${activeChat.id}`
-                    : `/messages/history?user1=${currentUser.id}&user2=${activeChat.id}`;
-                const res = await axiosInstance.get(url);
-                setMessages(res.data);
-            } catch { setMessages([]); }
-        };
-        fetchHistory();
-    }, [activeChat.id]);
-
-    useEffect(() => {
-        const handleMsg = (msg) => {
-            const isRel = activeChat.isGroup ? msg.group_id === activeChat.id :
-                (msg.sender_id === activeChat.id && msg.receiver_id === currentUser.id) ||
-                (msg.sender_id === currentUser.id && msg.receiver_id === activeChat.id);
-            if (isRel) setMessages(prev => prev.find(m => m.id === msg.id) ? prev : [...prev, msg]);
-        };
-        socket.on('receive_message', handleMsg);
-        return () => socket.off('receive_message', handleMsg);
-    }, [activeChat.id, socket]);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
