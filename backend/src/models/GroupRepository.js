@@ -35,10 +35,13 @@ class GroupRepository {
         return res.rows;
     }
 
-    async addMember(groupId, userId) {
-        await pool.query('INSERT INTO group_members (group_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [groupId, userId]);
+    async getMemberUserIds(groupId) {
+        const res = await pool.query(
+            'SELECT user_id FROM group_members WHERE group_id = $1',
+            [groupId]
+        );
+        return res.rows.map((row) => row.user_id);
     }
-    // backend/src/models/GroupRepository.js
 
     async isMember(groupId, userId) {
         const res = await pool.query(
