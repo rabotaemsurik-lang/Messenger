@@ -13,6 +13,7 @@ const groupRepo = require('./models/GroupRepository');
 
 // Імпорт контролерів
 const AuthController = require('./controllers/AuthController');
+const auth = require('./middleware/auth');
 
 const app = express();
 app.use(cors());
@@ -25,40 +26,46 @@ app.post('/api/auth/register', AuthController.register);
 app.post('/api/auth/login', AuthController.login);
 app.get('/api/auth/me', AuthController.getMe);
 
-// Отримання приватних чатів
-app.get('/api/users/chats', async (req, res) => {
+// Отримання приватних чатів (тільки для себе)
+app.get('/api/users/chats', auth, async (req, res) => {
     try {
-        const { userId } = req.query;
-        const chats = await userRepository.getActiveChats(userId);
+        const chats = await userRepository.getActiveChats(req.user.id);
         res.json(chats);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// Отримання списку груп користувача (Критично для збереження груп після оновлення!)
-app.get('/api/users/groups', async (req, res) => {
+// Отримання списку груп користувача (тільки для себе)
+app.get('/api/users/groups', auth, async (req, res) => {
     try {
-        const { userId } = req.query;
         const groups = await pool.query(`
             SELECT g.* FROM groups g
             JOIN group_members gm ON g.id = gm.group_id
             WHERE gm.user_id = $1
-        `, [userId]);
+        `, [req.user.id]);
         res.json(groups.rows);
     } catch (err) {
         res.status(500).json({ error: "Не вдалося завантажити групи" });
     }
 });
 
-// Отримання історії (Універсальне: для юзера або групи)
-app.get('/api/messages/history', async (req, res) => {
+// Отримання історії (тільки для себе / тільки групи де ти учасник)
+app.get('/api/messages/history', auth, async (req, res) => {
     try {
         const { user1, user2, groupId } = req.query;
         let history;
 
         if (groupId) {
-            // Історія групи
+            // Перевірка членства
+            const memberCheck = await pool.query(
+                'SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2',
+                [groupId, req.user.id]
+            );
+            if (memberCheck.rows.length === 0) {
+                return res.status(403).json({ error: 'Немає доступу до групи' });
+            }
+
             const result = await pool.query(`
                 SELECT m.*, u.username as sender_name 
                 FROM messages m
@@ -68,7 +75,11 @@ app.get('/api/messages/history', async (req, res) => {
             `, [groupId]);
             history = result.rows;
         } else {
-            // Історія приватного чату
+            // Дозволяємо читати тільки діалог, де один з учасників — ти
+            const me = String(req.user.id);
+            if (String(user1) !== me && String(user2) !== me) {
+                return res.status(403).json({ error: 'Немає доступу до цього чату' });
+            }
             history = await messageRepository.getChatHistory(user1, user2);
         }
         res.json(history);
@@ -88,10 +99,10 @@ app.get('/api/users/:id', async (req, res) => {
     }
 });
 
-app.put('/api/users/profile', async (req, res) => {
+app.put('/api/users/profile', auth, async (req, res) => {
     try {
-        const { userId, bio, birthday, avatar_url } = req.body;
-        const updatedUser = await userRepository.updateProfile(userId, { bio, birthday, avatar_url });
+        const { bio, birthday, avatar_url } = req.body;
+        const updatedUser = await userRepository.updateProfile(req.user.id, { bio, birthday, avatar_url });
         res.json(updatedUser);
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -116,19 +127,19 @@ io.on('connection', (socket) => {
             socket.userId = user.id;
             socket.username = user.username;
             activeSockets.set(user.id, socket.id);
-            socket.emit('auth_success', { user, status: 'login' });
+            socket.emit('auth_success', {user, status: 'login'});
         } catch (err) {
             socket.emit('error_msg', 'Помилка авторизації');
         }
     });
 
     socket.on('send_message', async (data) => {
-        const { receiverId, text } = data;
+        const {receiverId, text} = data;
         try {
             const savedMsg = await chatService.saveAndBroadcastMessage(socket.userId, receiverId, text);
             if (savedMsg) {
                 const receiverSocket = activeSockets.get(receiverId);
-                const emitData = { ...savedMsg, sender_name: socket.username };
+                const emitData = {...savedMsg, sender_name: socket.username};
                 socket.emit('receive_message', emitData);
                 if (receiverSocket) {
                     io.to(receiverSocket).emit('receive_message', emitData);
@@ -140,7 +151,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('send_group_message', async ({ groupId, text }) => {
+    socket.on('send_group_message', async ({groupId, text}) => {
         try {
             await groupService.sendMessageToGroup(groupId, socket.userId, text, io, activeSockets);
         } catch (err) {
@@ -148,7 +159,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('create_group', async ({ name, creatorId, initialMemberName }) => {
+    socket.on('create_group', async ({name, creatorId, initialMemberName}) => {
         try {
             const newGroup = await groupRepo.createGroupWithMember(name, creatorId, initialMemberName);
             socket.emit('group_created', newGroup);
@@ -163,7 +174,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('add_to_group', async ({ groupId, username }) => {
+    socket.on('add_to_group', async ({groupId, username}) => {
         try {
             const userToAdd = await userRepository.findByUsername(username);
             if (!userToAdd) return socket.emit('error_msg', 'Користувача не знайдено');
@@ -184,7 +195,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('delete_chat', async ({ groupId, receiverId }) => {
+    socket.on('delete_chat', async ({groupId, receiverId}) => {
         try {
             if (groupId) {
                 // Вихід з групи (це ми вже зробили)
@@ -194,10 +205,11 @@ io.on('connection', (socket) => {
                 // Видалення особистих повідомлень (SOLID: для обох сторін або тільки для себе)
                 // Видалимо повідомлення, де я відправник або отримувач у цьому діалозі
                 await pool.query(`
-                DELETE FROM messages 
-                WHERE (sender_id = $1 AND receiver_id = $2) 
-                   OR (sender_id = $2 AND receiver_id = $1)
-            `, [socket.userId, receiverId]);
+                    DELETE
+                    FROM messages
+                    WHERE (sender_id = $1 AND receiver_id = $2)
+                       OR (sender_id = $2 AND receiver_id = $1)
+                `, [socket.userId, receiverId]);
             }
             socket.emit('users_updated');
         } catch (err) {
@@ -216,12 +228,8 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('update_theme', async ({ theme }) => {
+    socket.on('update_theme', async ({theme}) => {
         if (socket.userId) await userRepository.updateTheme(socket.userId, theme);
-    });
-
-    socket.on('disconnect', () => {
-        if (socket.userId) activeSockets.delete(socket.userId);
     });
 });
 
